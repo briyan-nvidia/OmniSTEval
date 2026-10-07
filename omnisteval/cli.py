@@ -17,7 +17,7 @@
 """
 OmniSTEval CLI.
 
-Provides two subcommands:
+Provides three subcommands:
 
   shortform
     Evaluate shortform (segment-level) SimulEval outputs directly.
@@ -27,6 +27,10 @@ Provides two subcommands:
     Either re-segment long-form translation outputs to match reference
     segmentation and then evaluate, or evaluate an already-resegmented log.
     YAAL is computed with is_longform=True.
+
+  s2s
+    Transcribe generated target speech, align audible words to their playback
+    times, and score with the existing long-form quality and latency scorers.
 
 Based on the SoftSegmenter algorithm from "Better Late Than Never:
 Evaluation of Latency Metrics for Simultaneous Speech-to-Text Translation"
@@ -46,6 +50,7 @@ from omnisteval.io import (
     format_report,
 )
 from omnisteval.scoring import evaluate_instances
+from omnisteval.s2s_cli import add_s2s_parser, run_s2s
 from omnisteval import __version__
 
 logger = logging.getLogger(__name__)
@@ -610,6 +615,7 @@ def build_parser() -> ArgumentParser:
 
     _build_shortform_parser(subparsers)
     _build_longform_parser(subparsers)
+    add_s2s_parser(subparsers)
 
     return parser
 
@@ -624,6 +630,10 @@ def main():
     if args.subcommand is None:
         parser.print_help()
         parser.exit(1)
+
+    if args.subcommand == "s2s":
+        run_s2s(args)
+        return
 
     if args.char_level and args.word_level:
         parser.error("--char_level and --word_level are mutually exclusive.")

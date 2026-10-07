@@ -141,7 +141,58 @@ pip install OmniSTEval[simulstream]
 
 ## Usage
 
-OmniSTEval provides two subcommands: **`shortform`** and **`longform`**.
+### Speech-to-speech translation (experimental)
+
+The `s2s` command evaluates **what was actually spoken**, not the text sent to
+the speech synthesizer. WhisperX transcribes the complete target recording and
+force-aligns its words; OmniSTEval then resegments those words against the
+source-side reference segments and reuses its quality and LongYAAL scorers.
+
+```bash
+pip install '.[speech]'
+omnisteval s2s \
+  --manifest spoken_outputs.jsonl \
+  --speech_segmentation source_segments.yaml \
+  --ref_sentences_file english_references.txt \
+  --source_sentences_file source_transcripts.txt \
+  --target_language en \
+  --output_folder s2s_scores
+```
+
+The manifest has one JSON object per intact source recording. `source` must
+match its name in the source segmentation. `target_audio_filepath` is the
+generated speech WAV, and times are measured from the start of that WAV:
+
+```json
+{"source":"talk.wav","target_audio_filepath":"target.wav","playback_start_seconds":2.4}
+```
+
+If `target.wav` concatenates chunks **without preserving playback gaps**, use
+`playback_segments` instead of `playback_start_seconds`. Each entry maps a span
+of concatenated audio to the real playback clock:
+
+```json
+{"source":"talk.wav","target_audio_filepath":"target.wav","playback_segments":[{"audio_start_seconds":0,"audio_end_seconds":1,"playback_start_seconds":2.4},{"audio_start_seconds":1,"audio_end_seconds":2,"playback_start_seconds":4.1}]}
+```
+
+The reported **ASR-COMET-XL** scores the WhisperX transcript against the
+reference using `Unbabel/XCOMET-XL`. **ASR-LongYAAL (playback, ms)** uses the
+*end* of each audible word on the real playback clock. This is
+computation-aware, not CU latency: it includes synthesis, queueing, and
+playback. If the WAV already preserves all leading/inter-chunk silence, omit
+both playback timing fields. Use `--prealigned_words aligned_words.jsonl` to
+reuse a prior WhisperX alignment (or for deterministic tests) and `--no_comet`
+to skip the large COMET model. Outputs include `spoken_hypotheses.jsonl`,
+`aligned_words.jsonl`, `instances.resegmented.jsonl`, and `s2s_scores.json`.
+
+WhisperX alignment errors affect both quality and latency. The command rejects
+untimed words and flags words aligned more than one second before their source
+segment; review that diagnostic before comparing LongYAAL scores. ASR-LongYAAL
+does not by itself measure completion or end-of-speech lag, so report those
+separately for long-form speech-to-speech systems. Check the separate model
+license for XCOMET-XL before non-research use.
+
+OmniSTEval provides three subcommands: **`shortform`**, **`longform`**, and **`s2s`**.
 
 ### Shortform evaluation
 

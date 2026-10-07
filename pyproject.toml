@@ -50,6 +50,7 @@ dependencies = [
 
 [project.optional-dependencies]
 comet = ["unbabel-comet"]
+speech = ["whisperx", "unbabel-comet"]
 
 [project.urls]
 Homepage = "https://github.com/pe-trik/OmniSTEval"
