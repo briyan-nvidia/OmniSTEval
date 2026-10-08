@@ -56,6 +56,8 @@ def add_s2s_parser(subparsers) -> None:
     parser.add_argument("--comet_model", default="Unbabel/XCOMET-XL")
     parser.add_argument("--no_comet", action="store_true",
                         help="Skip the large XCOMET-XL model (useful for conversion/latency tests).")
+    parser.add_argument("--no_latency", action="store_true",
+                        help="Score speech quality only when the true playback timeline is unavailable.")
     parser.add_argument("--bleu_tokenizer", default="13a")
 
 
@@ -119,12 +121,13 @@ def run_s2s(args) -> dict:
         instances,
         is_longform=True,
         bleu_tokenizer=args.bleu_tokenizer,
+        compute_latency=not args.no_latency,
         compute_comet=not args.no_comet,
         comet_model=args.comet_model,
         source_sentences=source_sentences,
     )
     latency_ms = scores.get("ca_long_yaal")
-    if latency_ms is None or not math.isfinite(latency_ms):
+    if not args.no_latency and (latency_ms is None or not math.isfinite(latency_ms)):
         raise ValueError("ASR-LongYAAL is undefined: no aligned spoken words were scored")
     negative_aligned_words = sum(
         value < -1000.0
@@ -145,7 +148,10 @@ def run_s2s(args) -> dict:
         "ASR-chrF": scores.get("chrf"),
         "comet_model": args.comet_model if not args.no_comet else None,
         "whisper_model": args.whisper_model if args.prealigned_words is None else "prealigned cache",
-        "timestamp_convention": "audible word end on playback clock; computation-aware",
+        "timestamp_convention": (
+            "not scored" if args.no_latency else
+            "audible word end on playback clock; computation-aware"
+        ),
         "recordings": len(manifest),
         "spoken_words": spoken_word_count,
         "spoken_to_reference_word_ratio": (

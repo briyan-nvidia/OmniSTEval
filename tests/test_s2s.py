@@ -122,7 +122,7 @@ class SpeechTimingTests(unittest.TestCase):
                 output_folder=root / "output", target_language="en",
                 whisper_model="large-v3", device="cpu", compute_type="float32",
                 batch_size=1, comet_model="Unbabel/XCOMET-XL",
-                no_comet=True, bleu_tokenizer="13a",
+                no_comet=True, no_latency=False, bleu_tokenizer="13a",
             )
             report = run_s2s(args)
             self.assertEqual(report["recordings"], 1)
@@ -132,6 +132,11 @@ class SpeechTimingTests(unittest.TestCase):
             self.assertEqual(hypothesis["elapsed"], [650.0, 1350.0])
             self.assertNotIn("delays", hypothesis)
             self.assertTrue((root / "output/instances.resegmented.jsonl").is_file())
+            args.no_latency = True
+            args.output_folder = root / "quality_only"
+            quality_report = run_s2s(args)
+            self.assertIsNone(quality_report["ASR-LongYAAL (playback, ms)"])
+            self.assertEqual(quality_report["timestamp_convention"], "not scored")
 
 
 if __name__ == "__main__":

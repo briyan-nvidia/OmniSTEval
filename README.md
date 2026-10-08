@@ -184,6 +184,12 @@ both playback timing fields. Use `--prealigned_words aligned_words.jsonl` to
 reuse a prior WhisperX alignment (or for deterministic tests) and `--no_comet`
 to skip the large COMET model. Outputs include `spoken_hypotheses.jsonl`,
 `aligned_words.jsonl`, `instances.resegmented.jsonl`, and `s2s_scores.json`.
+Use `--no_latency` for recordings whose actual playback timeline was not
+captured (for example, an offline-rendered WAV); audio-relative time alone
+is not a valid streaming-latency measurement.
+Keep the dataset's original sentence/reference segmentation for quality scoring;
+concatenating an entire intervention into one COMET example can change its
+score substantially, even with identical spoken words.
 
 WhisperX alignment errors affect both quality and latency. The command rejects
 untimed words and flags words aligned more than one second before their source
