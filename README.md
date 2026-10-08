@@ -190,6 +190,10 @@ is not a valid streaming-latency measurement.
 Keep the dataset's original sentence/reference segmentation for quality scoring;
 concatenating an entire intervention into one COMET example can change its
 score substantially, even with identical spoken words.
+For `--target_language zh`, the scorer uses character-level latency units and
+SacreBLEU's `zh` tokenizer by default. Every character within one WhisperX
+aligned word receives that word's end time; this is conservative rather than
+an independently measured character timestamp.
 
 WhisperX alignment errors affect both quality and latency. The command rejects
 untimed words and flags words aligned more than one second before their source

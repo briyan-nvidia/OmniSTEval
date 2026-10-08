@@ -29,6 +29,16 @@ class SpeechTimingTests(unittest.TestCase):
         self.assertEqual(hypothesis["elapsed"], [2500.0])
         self.assertNotIn("delays", hypothesis)  # Playback time is CA, not CU.
 
+    def test_chinese_characters_keep_word_end_timing(self):
+        row = {"source": "sample.wav", "playback_start_seconds": 1.0}
+        hypothesis = aligned_words_to_hypothesis(
+            row, [{"word": "你好", "start": 0.0, "end": 0.4},
+                  {"word": " 世界", "start": 0.5, "end": 0.9}],
+            char_level=True,
+        )
+        self.assertEqual(hypothesis["prediction"], "你好世界")
+        self.assertEqual(hypothesis["elapsed"], [1400.0, 1400.0, 1900.0, 1900.0])
+
     def test_compressed_audio_with_playback_gap(self):
         row = {
             "source": "sample.wav",
@@ -56,6 +66,15 @@ class SpeechTimingTests(unittest.TestCase):
             playback_seconds(2, row)
         with self.assertRaises(ValueError):
             aligned_words_to_hypothesis(row, [{"word": "hello"}])
+
+    def test_last_word_alignment_rounding_is_clamped(self):
+        row = {"source": "sample.wav", "playback_segments": [
+            {"audio_start_seconds": 0, "audio_end_seconds": 1,
+             "playback_start_seconds": 2}
+        ]}
+        self.assertEqual(playback_seconds(1.002, row), 3.0)
+        with self.assertRaises(ValueError):
+            playback_seconds(1.1, row)
 
     def test_duplicate_source_rejected(self):
         rows = [{"source": "same.wav", "target_audio_filepath": "unused.wav"}] * 2
@@ -137,6 +156,43 @@ class SpeechTimingTests(unittest.TestCase):
             quality_report = run_s2s(args)
             self.assertIsNone(quality_report["ASR-LongYAAL (playback, ms)"])
             self.assertEqual(quality_report["timestamp_convention"], "not scored")
+
+    def test_chinese_end_to_end_uses_character_units(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.jsonl").write_text(json.dumps({
+                "source": "sample.wav", "target_audio_filepath": "unused.wav",
+                "playback_start_seconds": 1.0,
+            }) + "\n")
+            (root / "aligned.jsonl").write_text(json.dumps({
+                "source": "sample.wav", "words": [
+                    {"word": "你好", "start": 0, "end": 0.4},
+                    {"word": "世界", "start": 0.5, "end": 0.9},
+                ],
+            }) + "\n")
+            (root / "segmentation.json").write_text(json.dumps([
+                {"wav": "sample.wav", "offset": 0, "duration": 2.0}
+            ]))
+            (root / "references.txt").write_text("你好世界\n")
+            (root / "sources.txt").write_text("Hello world\n")
+            args = Namespace(
+                manifest=root / "manifest.jsonl",
+                prealigned_words=root / "aligned.jsonl",
+                speech_segmentation=str(root / "segmentation.json"),
+                ref_sentences_file=str(root / "references.txt"),
+                source_sentences_file=str(root / "sources.txt"),
+                output_folder=root / "output", target_language="zh",
+                whisper_model="large-v3", device="cpu", compute_type="float32",
+                batch_size=1, comet_model="Unbabel/XCOMET-XL",
+                no_comet=True, no_latency=False, bleu_tokenizer=None,
+            )
+            report = run_s2s(args)
+            self.assertEqual(report["latency_unit"], "character")
+            self.assertEqual(report["bleu_tokenizer"], "zh")
+            self.assertEqual(report["spoken_units"], 4)
+            hypothesis = json.loads((root / "output/spoken_hypotheses.jsonl").read_text())
+            self.assertEqual(hypothesis["prediction"], "你好世界")
+            self.assertEqual(hypothesis["elapsed"], [1400.0, 1400.0, 1900.0, 1900.0])
 
 
 if __name__ == "__main__":

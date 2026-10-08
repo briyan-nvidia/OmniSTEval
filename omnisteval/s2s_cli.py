@@ -58,12 +58,15 @@ def add_s2s_parser(subparsers) -> None:
                         help="Skip the large XCOMET-XL model (useful for conversion/latency tests).")
     parser.add_argument("--no_latency", action="store_true",
                         help="Score speech quality only when the true playback timeline is unavailable.")
-    parser.add_argument("--bleu_tokenizer", default="13a")
+    parser.add_argument("--bleu_tokenizer", default=None,
+                        help="SacreBLEU tokenizer (default: zh for Chinese, 13a otherwise).")
 
 
 def run_s2s(args) -> dict:
     if args.batch_size < 1:
         raise ValueError("--batch_size must be positive")
+    char_level = args.target_language == "zh"
+    bleu_tokenizer = args.bleu_tokenizer or ("zh" if char_level else "13a")
     manifest = read_jsonl(args.manifest)
     for row in manifest:
         audio = row.get("target_audio_filepath")
@@ -80,7 +83,9 @@ def run_s2s(args) -> dict:
             args.whisper_model, args.target_language, args.device,
             args.compute_type, args.batch_size,
         )
-    hypotheses, alignments = build_hypotheses(manifest, transcribe, prealigned)
+    hypotheses, alignments = build_hypotheses(
+        manifest, transcribe, prealigned, char_level=char_level
+    )
     if transcribe is not None:
         # XCOMET-XL is large: do not retain WhisperX and its aligner on the GPU
         # while loading the quality model.
@@ -104,7 +109,7 @@ def run_s2s(args) -> dict:
         ref_sentences_file=args.ref_sentences_file,
         hypothesis_file=str(hypothesis_path),
         hypothesis_format="jsonl",
-        char_level=False,
+        char_level=char_level,
         offset_delays=False,
         fix_emission_ca_flag=False,
     )
@@ -114,13 +119,13 @@ def run_s2s(args) -> dict:
         raise ValueError("Source sentences and reference segments must have equal lengths")
     instances, instance_dicts = resegment(
         reference_words, hypothesis_words, segmentation, references,
-        char_level=False, lang=args.target_language,
+        char_level=char_level, lang=args.target_language,
     )
     dump_instances_jsonl(instance_dicts, str(output))
     scores, _, _ = evaluate_instances(
         instances,
         is_longform=True,
-        bleu_tokenizer=args.bleu_tokenizer,
+        bleu_tokenizer=bleu_tokenizer,
         compute_latency=not args.no_latency,
         compute_comet=not args.no_comet,
         comet_model=args.comet_model,
@@ -139,8 +144,11 @@ def run_s2s(args) -> dict:
         bool(instance.reference.strip()) and not instance.prediction.strip()
         for instance in instances
     )
-    reference_word_count = sum(len(reference.split()) for reference in references)
-    spoken_word_count = sum(len(hypothesis["elapsed"]) for hypothesis in hypotheses)
+    reference_unit_count = sum(
+        len(reference.replace(" ", "")) if char_level else len(reference.split())
+        for reference in references
+    )
+    spoken_unit_count = sum(len(hypothesis["elapsed"]) for hypothesis in hypotheses)
     report = {
         "ASR-LongYAAL (playback, ms)": latency_ms,
         "ASR-COMET-XL": scores.get("comet") if not args.no_comet else None,
@@ -153,10 +161,16 @@ def run_s2s(args) -> dict:
             "audible word end on playback clock; computation-aware"
         ),
         "recordings": len(manifest),
-        "spoken_words": spoken_word_count,
+        "spoken_words": spoken_unit_count if not char_level else None,
         "spoken_to_reference_word_ratio": (
-            spoken_word_count / reference_word_count if reference_word_count else None
+            spoken_unit_count / reference_unit_count if reference_unit_count and not char_level else None
         ),
+        "spoken_units": spoken_unit_count,
+        "spoken_to_reference_unit_ratio": (
+            spoken_unit_count / reference_unit_count if reference_unit_count else None
+        ),
+        "latency_unit": "character" if char_level else "word",
+        "bleu_tokenizer": bleu_tokenizer,
         "empty_recordings": empty_recordings,
         "empty_reference_segments": empty_reference_segments,
         "negative_aligned_words_over_1s": negative_aligned_words,

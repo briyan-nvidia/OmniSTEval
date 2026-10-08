@@ -93,10 +93,18 @@ def playback_seconds(audio_seconds: float, row: dict) -> float:
         end = float(segment["audio_end_seconds"])
         if start - 1e-6 <= time <= end + 1e-6:
             return float(segment["playback_start_seconds"]) + max(0.0, time - start)
+    # Forced alignment can place a final word a few milliseconds beyond the
+    # decoded WAV duration. Clamp only this boundary rounding, not true gaps.
+    final = segments[-1]
+    final_end = float(final["audio_end_seconds"])
+    if final_end < time <= final_end + 0.05:
+        return float(final["playback_start_seconds"]) + (
+            final_end - float(final["audio_start_seconds"])
+        )
     raise ValueError(f"Audio time {time:.3f}s has no playback mapping for {row['source']}")
 
 
-def aligned_words_to_hypothesis(row: dict, words: Sequence[dict]) -> dict:
+def aligned_words_to_hypothesis(row: dict, words: Sequence[dict], char_level: bool = False) -> dict:
     """Create one OmniSTEval hypothesis from timed WhisperX words."""
     units: List[str] = []
     elapsed: List[float] = []
@@ -113,10 +121,14 @@ def aligned_words_to_hypothesis(row: dict, words: Sequence[dict]) -> dict:
             raise ValueError(f"Nonmonotonic aligned words in {row['source']}")
         previous_end = end
         emitted = playback_seconds(end, row) * 1000.0
-        for unit in word.split():
+        for unit in (list("".join(word.split())) if char_level else word.split()):
             units.append(unit)
             elapsed.append(emitted)
-    hypothesis = {"source": row["source"], "prediction": " ".join(units), "elapsed": elapsed}
+    hypothesis = {
+        "source": row["source"],
+        "prediction": "".join(units) if char_level else " ".join(units),
+        "elapsed": elapsed,
+    }
     if "source_length_ms" in row:
         hypothesis["source_length"] = _nonnegative(row["source_length_ms"], "source_length_ms")
     return hypothesis
@@ -154,6 +166,7 @@ def build_hypotheses(
     manifest: Sequence[dict],
     transcribe: Optional[Callable[[str], List[dict]]] = None,
     prealigned: Optional[Sequence[dict]] = None,
+    char_level: bool = False,
 ) -> Tuple[List[dict], List[dict]]:
     """Return standard OmniSTEval hypotheses and a reusable alignment cache."""
     if (transcribe is None) == (prealigned is None):
@@ -174,7 +187,7 @@ def build_hypotheses(
             aligned_by_source[row["source"]]["words"]
             if prealigned is not None else transcribe(row["target_audio_filepath"])
         )
-        hypotheses.append(aligned_words_to_hypothesis(row, words))
+        hypotheses.append(aligned_words_to_hypothesis(row, words, char_level=char_level))
         alignments.append({"source": row["source"], "words": words})
     return hypotheses, alignments
 
